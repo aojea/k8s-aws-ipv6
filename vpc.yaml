@@ -1,0 +1,178 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: K8s IPv6 VPC
+
+Resources:
+
+  #
+  # K8s IPv6 VPC
+  #
+  K8sIPv6Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 172.31.0.0/16
+      InstanceTenancy: default
+      Tags:
+      - Key: Name
+        Value: K8s IPv6 VPC
+  IPv6CidrBlock:
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      VpcId: !Ref K8sIPv6Vpc
+      AmazonProvidedIpv6CidrBlock: true
+
+  #
+  # Internet gateways (ipv4, and egress for ipv6)
+  #
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: K8s IPv6 VPC Internet Access
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref K8sIPv6Vpc
+      InternetGatewayId: !Ref InternetGateway
+  EgressOnlyInternetGateway:
+    Type: AWS::EC2::EgressOnlyInternetGateway
+    Properties:
+      VpcId: !Ref K8sIPv6Vpc
+
+  #
+  # Routing - public subnets
+  #
+  PublicSubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref K8sIPv6Vpc
+      Tags:
+      - Key: Name
+        Value: Route Table for Public Subnets in K8s IPv6 VPC
+  PublicSubnetDefaultRoute:
+    DependsOn: InternetGatewayAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      RouteTableId: !Ref PublicSubnetRouteTable
+      GatewayId: !Ref InternetGateway
+  PublicSubnetDefaultIpv6Route:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: ::/0
+      RouteTableId: !Ref PublicSubnetRouteTable
+      EgressOnlyInternetGatewayId: !Ref EgressOnlyInternetGateway
+
+  #
+  # Routing - private subnets
+  #
+  PrivateSubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref K8sIPv6Vpc
+      Tags:
+      - Key: Name
+        Value: Route Table for Private Subnets in K8s IPv6 VPC
+  PrivateSubnetDefaultIpv6Route:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationIpv6CidrBlock: ::/0
+      RouteTableId: !Ref PrivateSubnetRouteTable
+      EgressOnlyInternetGatewayId: !Ref EgressOnlyInternetGateway
+
+  #
+  # Access control
+  #
+  PrivateSubnetsNetworkAcl:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      VpcId: !Ref K8sIPv6Vpc
+      Tags:
+      - Key: Name
+        Value: Private Subnet on K8s IPv6 VPC ACL
+  PrivateSubnetsNetworkAclInboundEntry:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateSubnetsNetworkAcl
+      RuleNumber: 1
+      PortRange:
+        From: 22 # SSH
+        To: 22
+      Protocol: 6 # TCP
+      RuleAction: allow
+      Egress: false
+      CidrBlock: 172.31.0.0/16
+  PrivateSubnetsNetworkAclIpv6OutboundEntry:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateSubnetsNetworkAcl
+      RuleNumber: 1
+      Protocol: -1
+      RuleAction: allow
+      Egress: true
+      Ipv6CidrBlock: ::/0
+  PrivateSubnetsNetworkAclOutboundEntry:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PrivateSubnetsNetworkAcl
+      RuleNumber: 2
+      Protocol: -1
+      RuleAction: allow
+      Egress: true
+      CidrBlock: 0.0.0.0/0
+
+  #
+  # Public subnet A
+  #
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    DependsOn: IPv6CidrBlock
+    Properties:
+      CidrBlock: 172.31.0.0/20
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - "${VpcPart}${SubnetPart}"
+          - SubnetPart: '01::/64'
+            VpcPart: !Select [ 0, !Split [ '00::/56', !Select [ 0, !GetAtt K8sIPv6Vpc.Ipv6CidrBlocks ]]]
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      VpcId: !Ref K8sIPv6Vpc
+      MapPublicIpOnLaunch: 'true'
+      Tags:
+      - Key: Name
+        Value: Public Subnet A
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicSubnetRouteTable
+      SubnetId: !Ref PublicSubnetA
+
+  #
+  # Private subnet A
+  #
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    DependsOn: IPv6CidrBlock
+    Properties:
+      CidrBlock: 172.31.48.0/20
+      Ipv6CidrBlock:
+        Fn::Sub:
+          - "${VpcPart}${SubnetPart}"
+          - SubnetPart: 'a1::/64'
+            VpcPart: !Select [ 0, !Split [ '00::/56', !Select [ 0, !GetAtt K8sIPv6Vpc.Ipv6CidrBlocks ]]]
+      AssignIpv6AddressOnCreation: true
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      VpcId: !Ref K8sIPv6Vpc
+      Tags:
+      - Key: Name
+        Value: Private Subnet A in K8s IPv6 VPC
+  PrivateSubnetAAclAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref PrivateSubnetsNetworkAcl
+      SubnetId: !Ref PrivateSubnetA
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateSubnetRouteTable
+      SubnetId: !Ref PrivateSubnetA
