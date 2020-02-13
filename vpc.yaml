@@ -69,7 +69,6 @@ Resources:
       Protocol: 6 # TCP
       RuleAction: allow
       Egress: false
-      CidrBlock: 0.0.0.0/0
       Ipv6CidrBlock: ::/0
   PublicSubnetsNetworkAclAPIInboundEntry:
     Type: AWS::EC2::NetworkAclEntry
