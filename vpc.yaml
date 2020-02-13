@@ -3,14 +3,11 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: K8s IPv6 VPC
 
 Resources:
-
-  #
   # K8s IPv6 VPC
-  #
   K8sIPv6Vpc:
     Type: AWS::EC2::VPC
     Properties:
-      CidrBlock: 172.31.0.0/16
+      CidrBlock: 192.168.0.0/16
       InstanceTenancy: default
       Tags:
       - Key: Name
@@ -20,10 +17,7 @@ Resources:
     Properties:
       VpcId: !Ref K8sIPv6Vpc
       AmazonProvidedIpv6CidrBlock: true
-
-  #
-  # Internet gateways (ipv4, and egress for ipv6)
-  #
+  # Internet gateway
   InternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
@@ -35,14 +29,11 @@ Resources:
     Properties:
       VpcId: !Ref K8sIPv6Vpc
       InternetGatewayId: !Ref InternetGateway
-  EgressOnlyInternetGateway:
+      - EgressOnlyInternetGateway:
     Type: AWS::EC2::EgressOnlyInternetGateway
     Properties:
       VpcId: !Ref K8sIPv6Vpc
-
-  #
   # Routing - public subnets
-  #
   PublicSubnetRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -62,11 +53,8 @@ Resources:
     Properties:
       DestinationIpv6CidrBlock: ::/0
       RouteTableId: !Ref PublicSubnetRouteTable
-      EgressOnlyInternetGatewayId: !Ref EgressOnlyInternetGateway
-
-  #
+      GatewayId: !Ref InternetGateway
   # Routing - private subnets
-  #
   PrivateSubnetRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -81,9 +69,7 @@ Resources:
       RouteTableId: !Ref PrivateSubnetRouteTable
       EgressOnlyInternetGatewayId: !Ref EgressOnlyInternetGateway
 
-  #
   # Access control
-  #
   PrivateSubnetsNetworkAcl:
     Type: AWS::EC2::NetworkAcl
     Properties:
@@ -121,15 +107,12 @@ Resources:
       RuleAction: allow
       Egress: true
       CidrBlock: 0.0.0.0/0
-
-  #
   # Public subnet A
-  #
   PublicSubnetA:
     Type: AWS::EC2::Subnet
     DependsOn: IPv6CidrBlock
     Properties:
-      CidrBlock: 172.31.0.0/20
+      CidrBlock: 192.168.0.0/24
       Ipv6CidrBlock:
         Fn::Sub:
           - "${VpcPart}${SubnetPart}"
@@ -146,10 +129,7 @@ Resources:
     Properties:
       RouteTableId: !Ref PublicSubnetRouteTable
       SubnetId: !Ref PublicSubnetA
-
-  #
   # Private subnet A
-  #
   PrivateSubnetA:
     Type: AWS::EC2::Subnet
     DependsOn: IPv6CidrBlock

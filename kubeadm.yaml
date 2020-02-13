@@ -1,0 +1,49 @@
+---
+apiVersion: kubeadm.k8s.io/v1beta2
+kind: ClusterConfiguration
+clusterName: test
+controllerManager:
+  extraArgs:
+    configure-cloud-routes: "false"
+    bind-address: "::"
+kubernetesVersion: v1.16.2
+networking:
+  podSubnet: fd00:10:244::/64
+  serviceSubnet: fd00:10:96::/112
+scheduler:
+  extraArgs:
+    address: "::"
+    bind-address: "::1"
+---
+apiVersion: kubeadm.k8s.io/v1beta2
+kind: InitConfiguration
+metadata:
+  name: config
+# we use a well know token for TLS bootstrap
+bootstrapTokens:
+- token: abcdef.0123456789abcdef
+# we use a well know port for making the API server discoverable inside docker network.
+# from the host machine such port will be accessible via a random local port instead.
+localAPIEndpoint:
+  advertiseAddress: 2a05:d012:18:1c00:b4a4:459e:af22:57ba
+  bindPort: 6443
+nodeRegistration:
+  kubeletExtraArgs:
+    fail-swap-on: "false"
+    node-ip: 2a05:d012:18:1c00:b4a4:459e:af22:57ba
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+metadata:
+  name: config
+# configure ipv6 addresses in IPv6 mode
+address: "::"
+healthzBindAddress: "::"
+# disable disk resource management by default
+# kubelet will see the host disk that the inner container runtime
+# is ultimately backed by and attempt to recover disk space. we don't want that.
+imageGCHighThresholdPercent: 100
+evictionHard:
+  nodefs.available: "0%"
+  nodefs.inodesFree: "0%"
+  imagefs.available: "0%"
