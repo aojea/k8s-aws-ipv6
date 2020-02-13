@@ -1,9 +1,9 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
-Description: K8s IPv6 VPC
+Description: VPC-IPv6-K8S
 
 Resources:
-  # K8s IPv6 VPC
+  # VPC-IPv6-K8S
   K8sIPv6Vpc:
     Type: AWS::EC2::VPC
     Properties:
@@ -11,7 +11,7 @@ Resources:
       InstanceTenancy: default
       Tags:
       - Key: Name
-        Value: K8s IPv6 VPC
+        Value: K8sIPv6VPC
   IPv6CidrBlock:
     Type: AWS::EC2::VPCCidrBlock
     Properties:
@@ -23,7 +23,7 @@ Resources:
     Properties:
       Tags:
       - Key: Name
-        Value: K8s IPv6 VPC Internet Access
+        Value: K8sIPv6IG
   InternetGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
@@ -36,7 +36,7 @@ Resources:
       VpcId: !Ref K8sIPv6Vpc
       Tags:
       - Key: Name
-        Value: Route Table for Public Subnets in K8s IPv6 VPC
+        Value: K8sIPv6RT
   PublicSubnetDefaultRoute:
     DependsOn: InternetGatewayAttachment
     Type: AWS::EC2::Route
@@ -58,7 +58,7 @@ Resources:
       VpcId: !Ref K8sIPv6Vpc
       Tags:
       - Key: Name
-        Value: Public Subnet on K8s IPv6 VPC ACL
+        Value: K8sIPv6SubnetACL
   PublicSubnetsNetworkAclSSHInboundEntry:
     Type: AWS::EC2::NetworkAclEntry
     Properties:
@@ -119,7 +119,7 @@ Resources:
       AssignIpv6AddressOnCreation: 'true'
       Tags:
       - Key: Name
-        Value: Public Subnet A
+        Value: K8sIPv6Subnet
   PublicSubnetARouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
