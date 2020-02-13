@@ -115,7 +115,8 @@ Resources:
             VpcPart: !Select [ 0, !Split [ '00::/56', !Select [ 0, !GetAtt K8sIPv6Vpc.Ipv6CidrBlocks ]]]
       AvailabilityZone: !Select [ 0, !GetAZs '' ]
       VpcId: !Ref K8sIPv6Vpc
-      MapPublicIpOnLaunch: 'true'
+      MapPublicIpOnLaunch: 'false'
+      AssignIpv6AddressOnCreation: 'true'
       Tags:
       - Key: Name
         Value: Public Subnet A
