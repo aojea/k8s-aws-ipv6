@@ -49,6 +49,7 @@ Resources:
     Properties:
       DestinationIpv6CidrBlock: ::/0
       RouteTableId: !Ref PublicSubnetRouteTable
+      GatewayId: !Ref InternetGateway
 
   # Access control
   PublicSubnetsNetworkAcl:
