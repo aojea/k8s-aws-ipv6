@@ -29,10 +29,6 @@ Resources:
     Properties:
       VpcId: !Ref K8sIPv6Vpc
       InternetGatewayId: !Ref InternetGateway
-      - EgressOnlyInternetGateway:
-    Type: AWS::EC2::EgressOnlyInternetGateway
-    Properties:
-      VpcId: !Ref K8sIPv6Vpc
   # Routing - public subnets
   PublicSubnetRouteTable:
     Type: AWS::EC2::RouteTable
@@ -53,34 +49,19 @@ Resources:
     Properties:
       DestinationIpv6CidrBlock: ::/0
       RouteTableId: !Ref PublicSubnetRouteTable
-      GatewayId: !Ref InternetGateway
-  # Routing - private subnets
-  PrivateSubnetRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref K8sIPv6Vpc
-      Tags:
-      - Key: Name
-        Value: Route Table for Private Subnets in K8s IPv6 VPC
-  PrivateSubnetDefaultIpv6Route:
-    Type: AWS::EC2::Route
-    Properties:
-      DestinationIpv6CidrBlock: ::/0
-      RouteTableId: !Ref PrivateSubnetRouteTable
-      EgressOnlyInternetGatewayId: !Ref EgressOnlyInternetGateway
 
   # Access control
-  PrivateSubnetsNetworkAcl:
+  PublicSubnetsNetworkAcl:
     Type: AWS::EC2::NetworkAcl
     Properties:
       VpcId: !Ref K8sIPv6Vpc
       Tags:
       - Key: Name
-        Value: Private Subnet on K8s IPv6 VPC ACL
-  PrivateSubnetsNetworkAclInboundEntry:
+        Value: Public Subnet on K8s IPv6 VPC ACL
+  PublicSubnetsNetworkAclSSHInboundEntry:
     Type: AWS::EC2::NetworkAclEntry
     Properties:
-      NetworkAclId: !Ref PrivateSubnetsNetworkAcl
+      NetworkAclId: !Ref PublicSubnetsNetworkAcl
       RuleNumber: 1
       PortRange:
         From: 22 # SSH
@@ -88,25 +69,39 @@ Resources:
       Protocol: 6 # TCP
       RuleAction: allow
       Egress: false
-      CidrBlock: 172.31.0.0/16
-  PrivateSubnetsNetworkAclIpv6OutboundEntry:
+      CidrBlock: 0.0.0.0/0
+      Ipv6CidrBlock: ::/0
+  PublicSubnetsNetworkAclAPIInboundEntry:
     Type: AWS::EC2::NetworkAclEntry
     Properties:
-      NetworkAclId: !Ref PrivateSubnetsNetworkAcl
+      NetworkAclId: !Ref PublicSubnetsNetworkAcl
+      RuleNumber: 2
+      PortRange:
+        From: 6443 # SSH
+        To: 6443
+      Protocol: 6 # TCP
+      RuleAction: allow
+      Egress: false
+      Ipv6CidrBlock: ::/0
+  PublicSubnetsNetworkAclULAInboundEntry:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicSubnetsNetworkAcl
+      RuleNumber: 3
+      Protocol: -1 # All
+      RuleAction: allow
+      Egress: false
+      Ipv6CidrBlock: fd00::/8
+  PublicSubnetsNetworkAclIpv6OutboundEntry:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      NetworkAclId: !Ref PublicSubnetsNetworkAcl
       RuleNumber: 1
       Protocol: -1
       RuleAction: allow
       Egress: true
       Ipv6CidrBlock: ::/0
-  PrivateSubnetsNetworkAclOutboundEntry:
-    Type: AWS::EC2::NetworkAclEntry
-    Properties:
-      NetworkAclId: !Ref PrivateSubnetsNetworkAcl
-      RuleNumber: 2
-      Protocol: -1
-      RuleAction: allow
-      Egress: true
-      CidrBlock: 0.0.0.0/0
+
   # Public subnet A
   PublicSubnetA:
     Type: AWS::EC2::Subnet
@@ -129,30 +124,8 @@ Resources:
     Properties:
       RouteTableId: !Ref PublicSubnetRouteTable
       SubnetId: !Ref PublicSubnetA
-  # Private subnet A
-  PrivateSubnetA:
-    Type: AWS::EC2::Subnet
-    DependsOn: IPv6CidrBlock
-    Properties:
-      CidrBlock: 172.31.48.0/20
-      Ipv6CidrBlock:
-        Fn::Sub:
-          - "${VpcPart}${SubnetPart}"
-          - SubnetPart: 'a1::/64'
-            VpcPart: !Select [ 0, !Split [ '00::/56', !Select [ 0, !GetAtt K8sIPv6Vpc.Ipv6CidrBlocks ]]]
-      AssignIpv6AddressOnCreation: true
-      AvailabilityZone: !Select [ 0, !GetAZs '' ]
-      VpcId: !Ref K8sIPv6Vpc
-      Tags:
-      - Key: Name
-        Value: Private Subnet A in K8s IPv6 VPC
-  PrivateSubnetAAclAssociation:
+  PublicSubnetAAclAssociation:
     Type: AWS::EC2::SubnetNetworkAclAssociation
     Properties:
-      NetworkAclId: !Ref PrivateSubnetsNetworkAcl
-      SubnetId: !Ref PrivateSubnetA
-  PrivateSubnetARouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PrivateSubnetRouteTable
-      SubnetId: !Ref PrivateSubnetA
+      NetworkAclId: !Ref PublicSubnetsNetworkAcl
+      SubnetId: !Ref PublicSubnetA
