@@ -51,57 +51,6 @@ Resources:
       RouteTableId: !Ref PublicSubnetRouteTable
       GatewayId: !Ref InternetGateway
 
-  # Access control
-  PublicSubnetsNetworkAcl:
-    Type: AWS::EC2::NetworkAcl
-    Properties:
-      VpcId: !Ref K8sIPv6Vpc
-      Tags:
-      - Key: Name
-        Value: K8sIPv6SubnetACL
-  PublicSubnetsNetworkAclSSHInboundEntry:
-    Type: AWS::EC2::NetworkAclEntry
-    Properties:
-      NetworkAclId: !Ref PublicSubnetsNetworkAcl
-      RuleNumber: 1
-      PortRange:
-        From: 22 # SSH
-        To: 22
-      Protocol: 6 # TCP
-      RuleAction: allow
-      Egress: false
-      Ipv6CidrBlock: ::/0
-  PublicSubnetsNetworkAclAPIInboundEntry:
-    Type: AWS::EC2::NetworkAclEntry
-    Properties:
-      NetworkAclId: !Ref PublicSubnetsNetworkAcl
-      RuleNumber: 2
-      PortRange:
-        From: 6443 # SSH
-        To: 6443
-      Protocol: 6 # TCP
-      RuleAction: allow
-      Egress: false
-      Ipv6CidrBlock: ::/0
-  PublicSubnetsNetworkAclULAInboundEntry:
-    Type: AWS::EC2::NetworkAclEntry
-    Properties:
-      NetworkAclId: !Ref PublicSubnetsNetworkAcl
-      RuleNumber: 3
-      Protocol: -1 # All
-      RuleAction: allow
-      Egress: false
-      Ipv6CidrBlock: fd00::/8
-  PublicSubnetsNetworkAclIpv6OutboundEntry:
-    Type: AWS::EC2::NetworkAclEntry
-    Properties:
-      NetworkAclId: !Ref PublicSubnetsNetworkAcl
-      RuleNumber: 1
-      Protocol: -1
-      RuleAction: allow
-      Egress: true
-      Ipv6CidrBlock: ::/0
-
   # Public subnet A
   PublicSubnetA:
     Type: AWS::EC2::Subnet
@@ -124,97 +73,168 @@ Resources:
     Properties:
       RouteTableId: !Ref PublicSubnetRouteTable
       SubnetId: !Ref PublicSubnetA
-  PublicSubnetAAclAssociation:
-    Type: AWS::EC2::SubnetNetworkAclAssociation
-    Properties:
-      NetworkAclId: !Ref PublicSubnetsNetworkAcl
-      SubnetId: !Ref PublicSubnetA
 
   MasterHost:
     Type: AWS::EC2::Instance
-    Metadata:
-      AWS::CloudFormation::Init:
-        configSets:
-          master-setup: master-setup
-        master-setup:
-          files:
-            # Script that will allow for development kubernetes binaries to replace the pre-packaged AMI binaries.
-            "/tmp/kubeadm.yaml":
-              content: !Sub |
-                ---
-                apiVersion: kubeadm.k8s.io/v1beta2
-                kind: ClusterConfiguration
-                clusterName: ipv6-cluster
-                apiServer:
-                  extraArgs:
-                    bind-address: "::"
-                controllerManager:
-                  extraArgs:
-                    configure-cloud-routes: "false"
-                    bind-address: "::"
-                kubernetesVersion: v1.17.3
-                networking:
-                  podSubnet: fd00:10:244::/64
-                  serviceSubnet: fd00:10:96::/112
-                scheduler:
-                  extraArgs:
-                    address: "::"
-                    bind-address: "::1"
-                ---
-                apiVersion: kubeadm.k8s.io/v1beta2
-                kind: InitConfiguration
-                metadata:
-                  name: config
-                # we use a well know token for TLS bootstrap
-                bootstrapTokens:
-                - token: abcdef.0123456789abcdef
-                # we use a well know port for making the API server discoverable inside docker network.
-                # from the host machine such port will be accessible via a random local port instead.
-                localAPIEndpoint:
-                  bindPort: 6443
-                nodeRegistration:
-                  kubeletExtraArgs:
-                    fail-swap-on: "false"
-                    node-ip: "::"
-                ---
-                apiVersion: kubelet.config.k8s.io/v1beta1
-                kind: KubeletConfiguration
-                metadata:
-                  name: config
-                # configure ipv6 addresses in IPv6 mode
-                address: "::"
-                healthzBindAddress: "::"
-                # disable disk resource management by default
-                # kubelet will see the host disk that the inner container runtime
-                # is ultimately backed by and attempt to recover disk space. we don't want that.
-                imageGCHighThresholdPercent: 100
-                evictionHard:
-                  nodefs.available: "0%"
-                  nodefs.inodesFree: "0%"
-                  imagefs.available: "0%"
-          commands:
-            # Override the AMI binaries with any kubelet/kubeadm/kubectl binaries in the S3 bucket
-            "00-kubeadm-init":
-              command: "kubeadm init --config /tmp/kubeadm.yaml --ignore-preflight-errors=all -v7"
     Properties:
-      ImageId: ami-0c99fe0adb531276d # Full baked image with all the needed components
+      ImageId: ami-09345f73773a6578b # TODO parameter with full baked image
       SourceDestCheck: false # We need to route pod and services traffic inside the instances
       InstanceType: t2.micro # TODO parameter
       NetworkInterfaces:
-      - AssociatePublicIpAddress: true
-        DeleteOnTermination: true
+      - DeleteOnTermination: true
         DeviceIndex: 0
-        SubnetId: !Ref PublicSubnet
-        # This address is chosen because we know the master always
-        Ipv6Addresses:
-          Fn::Sub:
-            - "${SubnetPart}${HostPart}"
-            - HostPart: '::aa/128'
-              SubnetPart: !Select [ 0, !Split [ '01::/64', !Select [ 0, !GetAtt PublicSubnetA.Ipv6CidrBlocks ]]]
+        SubnetId: !Ref PublicSubnetA
+        GroupSet:
+        - !Ref ClusterSecGroup
       Tags:
       - Key: Name
         Value: master-host
       KeyName: aojeagarcia-key # TODO parameter
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+
+          cat <<EOF > /opt/kubeadm.yaml
+          ---
+          apiVersion: kubeadm.k8s.io/v1beta2
+          kind: ClusterConfiguration
+          clusterName: ipv6-cluster
+          apiServer:
+            extraArgs:
+              bind-address: "::"
+          controllerManager:
+            extraArgs:
+              configure-cloud-routes: "false"
+              bind-address: "::"
+          kubernetesVersion: v1.17.3
+          networking:
+            podSubnet: fd00:10:244::/64
+            serviceSubnet: fd00:10:96::/112
+          scheduler:
+            extraArgs:
+              address: "::"
+              bind-address: "::1"
+          ---
+          apiVersion: kubeadm.k8s.io/v1beta2
+          kind: InitConfiguration
+          metadata:
+            name: config
+          # we use a well know token for TLS bootstrap
+          bootstrapTokens:
+          - token: abcdef.0123456789abcdef
+          # we use a well know port for making the API server discoverable inside docker network.
+          # from the host machine such port will be accessible via a random local port instead.
+          localAPIEndpoint:
+            advertiseAddress: "::"
+            bindPort: 6443
+          nodeRegistration:
+            kubeletExtraArgs:
+              fail-swap-on: "false"
+              node-ip: "::"
+          ---
+          apiVersion: kubelet.config.k8s.io/v1beta1
+          kind: KubeletConfiguration
+          metadata:
+            name: config
+          # configure ipv6 addresses in IPv6 mode
+          address: "::"
+          healthzBindAddress: "::"
+          # disable disk resource management by default
+          # kubelet will see the host disk that the inner container runtime
+          # is ultimately backed by and attempt to recover disk space. we don't want that.
+          imageGCHighThresholdPercent: 100
+          evictionHard:
+            nodefs.available: "0%"
+            nodefs.inodesFree: "0%"
+            imagefs.available: "0%"
+          EOF
+
+          /usr/bin/kubeadm init --config /opt/kubeadm.yaml --ignore-preflight-errors=all -v7
+          sleep 5
+          /usr/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f /opt/cni/install-kindnet.yaml
+
+  # TODO: autoscaling group
+  Worker1Host:
+    Type: AWS::EC2::Instance
+    DependsOn: MasterHost
+    Properties:
+      ImageId: ami-09345f73773a6578b # TODO parameter with full baked image
+      SourceDestCheck: false # We need to route pod and services traffic inside the instances
+      InstanceType: t2.micro # TODO parameter
+      NetworkInterfaces:
+      - DeleteOnTermination: true
+        DeviceIndex: 0
+        SubnetId: !Ref PublicSubnetA
+        GroupSet:
+        - !Ref ClusterSecGroup
+      Tags:
+      - Key: Name
+        Value: worker-host
+      KeyName: aojeagarcia-key # TODO parameter
+      UserData:
+        Fn::Base64:
+          Fn::Sub:
+            - |
+              #!/bin/bash
+
+              cat <<EOF > /opt/kubeadm.yaml
+              kind: JoinConfiguration
+              kubeadm.k8s.io/v1beta2
+              discovery:
+                bootstrapToken:
+                  apiServerEndpoint: "[${ApiServerIP}]:6443"
+                    token: abcdef.0123456789abcdef
+                    unsafeSkipCAVerification: true
+              nodeRegistration:
+                criSocket: /run/containerd/containerd.sock
+                kubeletExtraArgs:
+                  fail-swap-on: "false"
+                  node-ip: "::"
+              EOF
+
+              /usr/bin/kubeadm join --config /opt/kubeadm.yaml --ignore-preflight-errors=all -v7
+            - ApiServerIP: !GetAtt MasterHost.Ipv6Address
+
+  Worker2Host:
+    Type: AWS::EC2::Instance
+    DependsOn: MasterHost
+    Properties:
+      ImageId: ami-09345f73773a6578b # TODO parameter with full baked image
+      SourceDestCheck: false # We need to route pod and services traffic inside the instances
+      InstanceType: t2.micro # TODO parameter
+      NetworkInterfaces:
+      - DeleteOnTermination: true
+        DeviceIndex: 0
+        SubnetId: !Ref PublicSubnetA
+        GroupSet:
+        - !Ref ClusterSecGroup
+      Tags:
+      - Key: Name
+        Value: worker-host
+      KeyName: aojeagarcia-key # TODO parameter
+      UserData:
+        Fn::Base64:
+          Fn::Sub:
+            - |
+              #!/bin/bash
+
+              cat <<EOF > /opt/kubeadm.yaml
+              kind: JoinConfiguration
+              kubeadm.k8s.io/v1beta2
+              discovery:
+                bootstrapToken:
+                  apiServerEndpoint: "[${ApiServerIP}]:6443"
+                    token: abcdef.0123456789abcdef
+                    unsafeSkipCAVerification: true
+              nodeRegistration:
+                criSocket: /run/containerd/containerd.sock
+                kubeletExtraArgs:
+                  fail-swap-on: "false"
+                  node-ip: "::"
+              EOF
+
+              /usr/bin/kubeadm join --config /opt/kubeadm.yaml --ignore-preflight-errors=all -v7
+            - ApiServerIP: !GetAtt MasterHost.Ipv6Address
 
   # Define the (one) security group for all machines in the cluster.  Keeping
   # just one security group helps with k8s's cloud-provider=aws integration so
@@ -223,7 +243,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Security group for all machines in the cluster
-      VpcId: !Ref VPCID
+      VpcId: !Ref K8sIPv6Vpc
       # Security Groups must be tagged with KubernetesCluster=<cluster> so that
       # they can coexist in the same VPC
       Tags:
@@ -252,6 +272,7 @@ Resources:
       IpProtocol: tcp
       FromPort: '22'
       ToPort: '22'
+      CidrIpv6: '::/0'
 
   # Allow the apiserver load balancer to talk to the cluster on port 6443
   ClusterSecGroupAllow6443:
@@ -263,3 +284,4 @@ Resources:
       IpProtocol: tcp
       FromPort: '6443'
       ToPort: '6443'
+      CidrIpv6: '::/0'
