@@ -1,12 +1,15 @@
 ---
 apiVersion: kubeadm.k8s.io/v1beta2
 kind: ClusterConfiguration
-clusterName: test
+clusterName: ipv6-cluster
+apiServer:
+  extraArgs:
+    bind-address: "::"
 controllerManager:
   extraArgs:
     configure-cloud-routes: "false"
     bind-address: "::"
-kubernetesVersion: v1.16.2
+kubernetesVersion: v1.17.3
 networking:
   podSubnet: fd00:10:244::/64
   serviceSubnet: fd00:10:96::/112
@@ -25,12 +28,11 @@ bootstrapTokens:
 # we use a well know port for making the API server discoverable inside docker network.
 # from the host machine such port will be accessible via a random local port instead.
 localAPIEndpoint:
-  advertiseAddress: 2a05:d012:18:1c00:b4a4:459e:af22:57ba
   bindPort: 6443
 nodeRegistration:
   kubeletExtraArgs:
     fail-swap-on: "false"
-    node-ip: 2a05:d012:18:1c00:b4a4:459e:af22:57ba
+    node-ip: "::"
 ---
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
