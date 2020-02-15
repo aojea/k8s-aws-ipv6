@@ -173,12 +173,12 @@ Resources:
 
               cat <<EOF > /opt/kubeadm.yaml
               kind: JoinConfiguration
-              kubeadm.k8s.io/v1beta2
+              apiVersion: kubeadm.k8s.io/v1beta2
               discovery:
                 bootstrapToken:
-                  apiServerEndpoint: "[${ApiServerIP}]:6443"
-                    token: abcdef.0123456789abcdef
-                    unsafeSkipCAVerification: true
+                  apiServerEndpoint: "${ApiServerIP}:6443"
+                  token: abcdef.0123456789abcdef
+                  unsafeSkipCAVerification: true
               nodeRegistration:
                 criSocket: /run/containerd/containerd.sock
                 kubeletExtraArgs:
@@ -211,12 +211,12 @@ Resources:
 
               cat <<EOF > /opt/kubeadm.yaml
               kind: JoinConfiguration
-              kubeadm.k8s.io/v1beta2
+              apiVersion: kubeadm.k8s.io/v1beta2
               discovery:
                 bootstrapToken:
-                  apiServerEndpoint: "[${ApiServerIP}]:6443"
-                    token: abcdef.0123456789abcdef
-                    unsafeSkipCAVerification: true
+                  apiServerEndpoint: "${ApiServerIP}:6443"
+                  token: abcdef.0123456789abcdef
+                  unsafeSkipCAVerification: true
               nodeRegistration:
                 criSocket: /run/containerd/containerd.sock
                 kubeletExtraArgs:
