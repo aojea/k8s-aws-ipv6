@@ -1,44 +1,33 @@
 # k8s-aws-ipv6
 
-Deploy a kubernetes ipv6 cluster on AWS
+Support for IPv6-only clusters was added in Kubernetes 1.9 as an alpha feature, allowing full Kubernetes capabilities using IPv6 networking instead of IPv4 networking.
 
-The goal is to run an IPv6 conformance cluster in aws : 1 control-plane + 2 workers
+The only missing part to graduate IPv6 to Beta is running Kubernetes IPv6 clusters in a Cloud Provider.
 
-It's out of scope to provide a mechanism to deploy clusters in AWS, there
+This document explains how to run an IPv6 conformance cluster in AWS using kubeadm: 1 control-plane + 2 workers, but it can be easily adapted to run more nodes.
+
+It's out of scope to provide a mechanism to create a new installer for Kubernetes, there
 are much better projects to do that:
 
 * kops
 * kubespray
 * cluster-api
 
-## For the impatient
+## Requirements: Fully baked instances
 
-Just use the provided cloudformation stack to create an IPv6 cluster in AWS
+We are going to use the fully baked instances with all the necessary components preloaded:
 
-You can use it from the cli or the AWS Web Console:
+You can find openSUSE Leap images ready to use in AWS: ami-09345f73773a6578b
 
-```sh
-aws cloudformation create-stack --stack-name myKubernetesIPv6Cluster \
-    --template-body file://aws-k8s-ipv6.yaml \
-    --parameters ParameterKey=KeyPairName,ParameterValue=aojeagarcia-key
-```
-
-You can define your own Keypair, ImageId, InstanceType, and Kubeadm Token
-
-
-## Instances
-
-We are going to use the fully baked instances with all the necessary components preloaded
-
-You can find openSUSE Leap images ready to use here:
+If you are curious about how they are built, you can find the sources here:
 
 https://build.opensuse.org/package/show/home:aojeagarcia:jeek8s/JeeK8S-Leap-15.1
 
-There are images on the Cluster API project too (still WIP)
+There are also images on the Cluster API project too (still WIP)
 
-https://github.com/kubernetes-sigs/image-builder/blob/master/images/capi/Makefile
+https://github.com/kubernetes-sigs/image-builder/pull/97
 
-The images need to have:
+If you want to create your own images, these are the requirements:
 
 - IPv6 forwarding enabled and accept RA on the external interface
 
@@ -51,16 +40,30 @@ The images need to have:
 - The CNI plugin install manifest and image preloaded:
   https://github.com/aojea/kindnet
 
+## For the impatient
+
+Just use the provided cloudformation stack in this repo to create an IPv6 cluster in AWS
+
+You can use it from the cli or the AWS Web Console, is only one command and you'll have 1 control-plane and 2 worker nodes:
+
+```sh
+aws cloudformation create-stack --stack-name myKubernetesIPv6Cluster \
+    --template-body file://aws-k8s-ipv6.yaml \
+    --parameters ParameterKey=KeyPairName,ParameterValue=aojeagarcia-key
+```
+
+You can define your own Keypair, ImageId, InstanceType, and Kubeadm Token as parameters.
+
 ## The Hard Way
 
-1. Create VPC with IPv6 enabled
+1. Create a VPC with IPv6 enabled
 2. Create a Subnet/s with IPv6 autoassign by default
-3. Configure Network ACL to allow:
+3. Configure Network ACLs to allow:
   NodePorts
   Pod and Service Subnets
   Host to Host
 
-4. Add Internet Gateway
+4. Add an Internet Gateway to the VPC
 5. Configure the route table to use the Internet Gateway
 6. Spwan instances
 
@@ -68,11 +71,15 @@ The images need to have:
 6.2 Disable the SrcDestCheck attribute on the instances
 6.3 Configure security groups to allow Pods and Services communication between the instances
 
-## Kubeadm
+## Creating the cluster with Kubeadm
 
-*NOTE:* Pending https://github.com/kubernetes/kubernetes/pull/88164
+**NOTE**: Kubelet node-ip autodiscovery pending https://github.com/kubernetes/kubernetes/pull/88164
 
-Use the following Kubeadm configuration for the control plane node
+Without this patch, you have to configure the kubelet node-ip to use the node IPv6 address adding
+`--node-ip=NODE_IPV6_ADDRESS` in `/var/lib/kubelet/kubeadm-flags.env` and restarting the kubelet 
+`systemctl restart kubelet`
+
+Use the following Kubeadm configuration for the control plane node:
 
 ```yaml
 ---
@@ -128,14 +135,13 @@ evictionHard:
   imagefs.available: "0%"
 ```
 
-
 init the control-plane nodes with kubeadm:
 
 ```sh
 /usr/bin/kubeadm init --config /opt/kubeadm.yaml --ignore-preflight-errors=all -v7
 ```
 
-Use the following Kubeadm configuration for the control plane node
+Use the following Kubeadm configuration for the worker nodes:
 
 ```yaml
 ---
@@ -161,22 +167,22 @@ and join the worker nodes:
 
 ## CNI Plugin
 
-We can [Kindnet](https://github.com/aojea/kindnet) as CNI plugin because an AWS subnet allows having all cluster nodes in the same L2 segment.
+You can choose any CNI plugin with IPv6 support, however, I prefer to use use [Kindnet](https://github.com/aojea/kindnet) as CNI plugin because it's simpler than any other plugin and an AWS subnet allows having all cluster nodes in the same L2 segment.
 
 Because DockerHub and Github are not available in IPv6 there are 2 options:
 
 1. Provide IPv4 internet connectivity to the instances
 
-or 
+or
 
-2. Download CNI image from other services, i.e. Dropbox to all nodes:
+2. Upload the CNI artifacts to an IPv6 service, in this example I'm using Dropbox:
 
 ```sh
 wget https://www.dropbox.com/s/yqxarzf8tj83y02/kindnetd.tar.gz -O- | gunzip | ctr --namespace=k8s.io images import --no-unpack -
 https://www.dropbox.com/s/ma35vprq69h3ikw/install-kindnet.yaml
 ```
 
-Because the install manifest doesn't specifiy the image, it tries to pull it from internet, so we should tag them:
+Because the install manifest doesn't specifiy the tag it uses `:latest`, that means it tries to pull it from internet, so we should tag them to use the local images first:
 
 ```sh
 ctr --namespace=k8s.io images tag docker.io/aojea/kindnetd:latest docker.io/aojea/kindnetd:0.7.0
@@ -255,6 +261,10 @@ kubectl apply -f web-service.yaml
 
 IPv6 addresses are public, that means that you don't need a LoadBalancer and you can access the service using one of the nodes public IPv6 addresses.
 
+```sh
+curl http://[MY_NODE_IPV6]:8080
+```
+
 ## References
 
 - https://itnext.io/how-to-run-ipv6-enabled-docker-containers-on-aws-87e090ab0397
@@ -269,7 +279,6 @@ IPv6 addresses are public, that means that you don't need a LoadBalancer and you
 
 - [ ] Use the AWS Cloud provider
   https://github.com/kubernetes/cloud-provider-aws
-- [ ] Document how to expose services without load balancers
 - [ ] Cluster HA configuration
 - [ ] Autoscale workers
-- [ ] Explore alternatives to expose services due to the amount of public addresses we have now
+- [ ] Explore Load Balancer alternatives to expose services due to the amount of public addresses we have now
