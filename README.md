@@ -2,10 +2,6 @@
 
 Deploy a kubernetes ipv6 cluster on AWS
 
-Cloudformation base template obtained from:
-
-https://gist.githubusercontent.com/milesjordan/d86942718f8d4dc20f9f331913e7367a/raw/3227d1dff6e9df8a79f395cdb2c62af9899ed777/vpc.yaml
-
 The goal is to run an IPv6 conformance cluster in aws : 1 control-plane + 2 workers
 
 It's out of scope to provide a mechanism to deploy clusters in AWS, there
@@ -15,114 +11,110 @@ are much better projects to do that:
 * kubespray
 * cluster-api
 
+## For the impatient
+
+Just use the provided cloudformation stack to create an IPv6 cluster in AWS
+
+You can use it from the cli or the AWS Web Console:
+
+```sh
+aws cloudformation create-stack --stack-name myKubernetesIPv6Cluster \
+    --template-body file://aws-k8s-ipv6.yaml \
+    --parameters ParameterKey=KeyPairName,ParameterValue=aojeagarcia-key
+```
+
+You can define your own Keypair, ImageId, InstanceType, and Kubeadm Token
+
 
 ## Instances
 
-We are going to use the predefined instances created by the Cluster API project on
+We are going to use the fully baked instances with all the necessary components preloaded
+
+You can find openSUSE Leap images ready to use here:
+
+https://build.opensuse.org/package/show/home:aojeagarcia:jeek8s/JeeK8S-Leap-15.1
+
+There are images on the Cluster API project too (still WIP)
 
 https://github.com/kubernetes-sigs/image-builder/blob/master/images/capi/Makefile
 
+The images need to have:
 
-- [ ] Add OpenSUSE Leap Support
-- [ ] Enable IPv6 forwarding (modules?)
-`sysctl -w net.ipv6.conf.all.forwarding=1`
-- [x] Use latest CNI plugins 0.8.5
+- IPv6 forwarding enabled and accept RA on the external interface
 
-## Deployment
+- All the Kubernetes components installed:
+  kubelet, kubectl, kubeadm
+
+- All the Kubernetes images preloaded:
+  kube-controller-manager.tar kube-proxy.tar kube-scheduler.tar kube-apiserver.tar
+
+- The CNI plugin install manifest and image preloaded:
+  https://github.com/aojea/kindnet
+
+## The Hard Way
 
 1. Create VPC with IPv6 enabled
-2. Create Subnet/s with IPv6 autoassign by default
-3. Configure Security Groups
-
-NodePorts
-Pod and Service Subnets
-Host to Host
+2. Create a Subnet/s with IPv6 autoassign by default
+3. Configure Network ACL to allow:
+  NodePorts
+  Pod and Service Subnets
+  Host to Host
 
 4. Add Internet Gateway
-5. Configure route table
-6. Create Master and Worker IAM roles
+5. Configure the route table to use the Internet Gateway
+6. Spwan instances
 
-https://github.com/kubernetes/cloud-provider-aws
-
-6. Spawn instances
-
-ami-02c520e711f7d01cd capa-ami-ubuntu-18.04-1.16.2-00-1579044236 
-
-7. disable the SrcDestCheck attribute
-8. Tag instances
-kubernetes.io/cluster/kubernetes = owned
-Name = k8s
-
+6.1 Use the fully-baked instances because some services like DockerHub and Github are not available with IPv6
+6.2 Disable the SrcDestCheck attribute on the instances
+6.3 Configure security groups to allow Pods and Services communication between the instances
 
 ## Kubeadm
 
-Obtain IPv6 address 
+*NOTE:* Pending https://github.com/kubernetes/kubernetes/pull/88164
 
-```sh
-TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"` \
-&& curl -H "X-aws-ec2-metadata-token: $TOKEN" –v http://169.254.169.254/latest/meta-data/network/interfaces/macs/mac-address/ipv6s
-```
-
-```sh
-MACADDRESS=`curl http://169.254.169.254/latest/meta-data/network/interfaces/macs`
-HOST_IPV6=`curl http://169.254.169.254/latest/meta-data/network/interfaces/macs/${MACADDRESS}ipv6s`
-export HOST_IPV6
-```
-
-
-Set hostname
-
-```
-hostnamectl set-hostname $(curl http://169.254.169.254/latest/meta-data/local-hostname)
-```
-
-
-Configure Kubeadm for control planes
+Use the following Kubeadm configuration for the control plane node
 
 ```yaml
 ---
 apiVersion: kubeadm.k8s.io/v1beta2
 kind: ClusterConfiguration
+clusterName: ipv6-cluster
 apiServer:
-  certSANs:
-  - localhost
-  - ::1
-clusterName: test
-controlPlaneEndpoint: "[$HOST_IPV6]:6443"
+  extraArgs:
+    bind-address: "::"
 controllerManager:
-  extraArgs:
-    configure-cloud-routes: "false"
-    bind-address: "::"
-kubernetesVersion: v1.16.2
+  extraArgs:
+    configure-cloud-routes: "false"
+    bind-address: "::"
 networking:
-  podSubnet: fd00:10:244::/64
-  serviceSubnet: fd00:10:96::/112
+  podSubnet: fd00:10:244::/64
+  serviceSubnet: fd00:10:96::/112
 scheduler:
-  extraArgs:
-    address: "::"
-    bind-address: "::1"
+  extraArgs:
+    address: "::"
+    bind-address: "::1"
 ---
 apiVersion: kubeadm.k8s.io/v1beta2
 kind: InitConfiguration
 metadata:
-  name: config
+  name: config
 # we use a well know token for TLS bootstrap
 bootstrapTokens:
-- token: abcdef.0123456789abcdef
+- token: ${Token}
 # we use a well know port for making the API server discoverable inside docker network.
 # from the host machine such port will be accessible via a random local port instead.
 localAPIEndpoint:
-  advertiseAddress: $HOST_IPV6
-  bindPort: 6443
+  advertiseAddress: "::"
+  bindPort: 6443
 nodeRegistration:
-  kubeletExtraArgs:
-    fail-swap-on: "false"
-    node-ip: $HOST_IPV6
+  kubeletExtraArgs:
+    fail-swap-on: "false"
+    node-ip: "::"
 ---
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
 metadata:
-  name: config
+  name: config
 # configure ipv6 addresses in IPv6 mode
 address: "::"
 healthzBindAddress: "::"
@@ -131,145 +123,153 @@ healthzBindAddress: "::"
 # is ultimately backed by and attempt to recover disk space. we don't want that.
 imageGCHighThresholdPercent: 100
 evictionHard:
-  nodefs.available: "0%"
-  nodefs.inodesFree: "0%"
-  imagefs.available: "0%"
+  nodefs.available: "0%"
+  nodefs.inodesFree: "0%"
+  imagefs.available: "0%"
 ```
 
-substitue env variables:
+
+init the control-plane nodes with kubeadm:
 
 ```sh
-envsubst < kubeadm.yaml > config.yaml
+/usr/bin/kubeadm init --config /opt/kubeadm.yaml --ignore-preflight-errors=all -v7
 ```
 
-Configure control-plane node
-
-```
-kubeadm init --config config.yaml --ignore-preflight-errors=all -v7
-```
-
-
-
-configure `--node-ip=$HOST_IPV6` in /var/lib/kubelet/kubeadm-flags.env
-
-and  `systemctl restart kubelet`
-
-
-Worker nodes:
+Use the following Kubeadm configuration for the control plane node
 
 ```yaml
 ---
-apiVersion: kubeadm.k8s.io/v1beta2
 kind: JoinConfiguration
+apiVersion: kubeadm.k8s.io/v1beta2
 discovery:
   bootstrapToken:
-    apiServerEndpoint: '[CONTROL_PLANEIP]:6443'
-    token: abcdef.0123456789abcdef
+    apiServerEndpoint: "${ApiServerIP}:6443"
+    token: ${Token}
     unsafeSkipCAVerification: true
 nodeRegistration:
   criSocket: /run/containerd/containerd.sock
   kubeletExtraArgs:
     fail-swap-on: "false"
-    node-ip: $HOST_IPV6
+    node-ip: "::"
 ```
 
-configure `--node-ip=$HOST_IPV6` in /var/lib/kubelet/kubeadm-flags.env
+and join the worker nodes:
 
-and  `systemctl restart kubelet`
-
-
-Check everything is working:
-
-
+```sh
+/usr/bin/kubeadm init --config /opt/kubeadm.yaml --ignore-preflight-errors=all -v7
+```
 
 ## CNI Plugin
 
-Assuming a flat network we can use [Kindnet]() as CNI plugin
+We can [Kindnet](https://github.com/aojea/kindnet) as CNI plugin because an AWS subnet allows having all cluster nodes in the same L2 segment.
 
+Because DockerHub and Github are not available in IPv6 there are 2 options:
 
-Download docker image:
+1. Provide IPv4 internet connectivity to the instances
 
-https://www.dropbox.com/s/yqxarzf8tj83y02/kindnetd.tar.gz
+or 
 
-`wget https://www.dropbox.com/s/yqxarzf8tj83y02/kindnetd.tar.gz -O- | gunzip | ctr --namespace=k8s.io images import --no-unpack -`
+2. Download CNI image from other services, i.e. Dropbox to all nodes:
 
-Download installation manifest:
+```sh
+wget https://www.dropbox.com/s/yqxarzf8tj83y02/kindnetd.tar.gz -O- | gunzip | ctr --namespace=k8s.io images import --no-unpack -
 https://www.dropbox.com/s/ma35vprq69h3ikw/install-kindnet.yaml
-
-`kubectl apply -f https://www.dropbox.com/s/ma35vprq69h3ikw/install-kindnet.yaml`
-
-Can't use latest for local images
-
-`sed -i 's/aojea\/kindnetd/aojea\/kindnetd:0.7.0/' kindnet.yaml`
-`ctr --namespace=k8s.io images tag docker.io/aojea/kindnetd:latest docker.io/aojea/kindnetd:0.7.0`
-
-
-## Check it works
-
-```
-root@ip-192-168-0-44:~# kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes -o wide
-NAME                                         STATUS   ROLES    AGE     VERSION   INTERNAL-IP                             EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION    CONTAINER-RUNTIME
-ip-192-168-0-217                             Ready    <none>   2m1s    v1.16.2   2a05:d012:18:1c00:ff8d:68f6:3204:42c7   <none>        Ubuntu 18.04.3 LTS   4.15.0-1057-aws   containerd://1.3.2
-ip-192-168-0-242                             Ready    <none>   2m13s   v1.16.2   2a05:d012:18:1c00:f354:4823:8487:c4d1   <none>        Ubuntu 18.04.3 LTS   4.15.0-1057-aws   containerd://1.3.2
-ip-192-168-0-44.eu-west-3.compute.internal   Ready    master   3m      v1.16.2   2a05:d012:18:1c00:b4a4:459e:af22:57ba   <none>        Ubuntu 18.04.3 LTS   4.15.0-1057-aws   containerd://1.3.2
 ```
 
+Because the install manifest doesn't specifiy the image, it tries to pull it from internet, so we should tag them:
+
+```sh
+ctr --namespace=k8s.io images tag docker.io/aojea/kindnetd:latest docker.io/aojea/kindnetd:0.7.0
+sed -i 's/aojea\/kindnetd/aojea\/kindnetd:0.7.0/' kindnet.yaml
 ```
-root@ip-192-168-0-44:~# kubectl --kubeconfig /etc/kubernetes/admin.conf get services -n kube-system
-NAME       TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                  AGE
-kube-dns   ClusterIP   fd00:10:96::a   <none>        53/UDP,53/TCP,9153/TCP   3m39s
+
+and we can install the CNI now:
+
+```sh
+kubectl apply -f https://www.dropbox.com/s/ma35vprq69h3ikw/install-kindnet.yaml
 ```
 
+## Verify it works
 
-## Deployment
+Once the nodes joined the cluster you can verify that they are ready with:
 
-https://cloud.google.com/kubernetes-engine/docs/tutorials/http-balancer/web-deployment.yaml
-https://cloud.google.com/kubernetes-engine/docs/tutorials/http-balancer/web-deployment.yaml
+```
+ip-192-168-0-110:~ # kubectl --kubeconfig /etc/kubernetes/admin.conf get nodes -o wide
+NAME               STATUS   ROLES    AGE     VERSION                                   INTERNAL-IP                              EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION                CONTAINER-RUNTIME
+ip-192-168-0-110   Ready    master   16m     v1.18.0-alpha.5.32+b09b91f84eb9a7-dirty   2a05:d012:87f:5d01:dd0a:8a4:3f6f:669f    <none>        openSUSE Leap 15.1   4.12.14-lp151.28.36-default   containerd://1.3.3
+ip-192-168-0-169   Ready    <none>   106s    v1.18.0-alpha.5.32+b09b91f84eb9a7-dirty   2a05:d012:87f:5d01:45f1:65e4:9fbd:b448   <none>        openSUSE Leap 15.1   4.12.14-lp151.28.36-default   containerd://1.3.3
+ip-192-168-0-189   Ready    <none>   3m50s   v1.18.0-alpha.5.32+b09b91f84eb9a7-dirty   2a05:d012:87f:5d01:3a5e:9179:8afa:5475   <none>        openSUSE Leap 15.1   4.12.14-lp151.28.36-default   containerd://1.3.3
+```
 
+### Deploy a web application
 
-## external cloud provider
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      run: web
+  template:
+    metadata:
+      labels:
+        run: web
+    spec:
+      containers:
+      - image: gcr.io/google-samples/hello-app:1.0
+        imagePullPolicy: IfNotPresent
+        name: web
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+```
 
-- [ ] In-Tree
-- [ ] Out-of-tree
+```sh
+kubectl apply -f web-deployment.yaml
+```
 
-## Load Balancer
+### Expose your Deployment as a Service
 
-IPv6 addresses are public do we need load balancer?
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: default
+spec:
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    run: web
+  type: NodePort
+```
 
-$0.0294 per Classic Load Balancer-hour (or partial hour)
-21.46 USD per month
+```sh
+kubectl apply -f web-service.yaml
+```
 
-Multiple IPv6 addresses for instance
-
-https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/MultipleIP.html#working-with-multiple-ipv6
-
-Number of secondary IP addresses limited by instance type
-
-https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-eni.html#AvailableIpPerENI
-
-- Service CIDR a subnet from the Public CIDR
-- Use portmap? external-ip? from public CIDR to Service CIDR
-- Use a new instance as LB
-
-Another instance?
-node port?
-
+IPv6 addresses are public, that means that you don't need a LoadBalancer and you can access the service using one of the nodes public IPv6 addresses.
 
 ## References
 
-https://itnext.io/how-to-run-ipv6-enabled-docker-containers-on-aws-87e090ab0397
-https://blog.scottlowe.org/2019/02/18/kubernetes-kubeadm-and-the-aws-cloud-provider/
-https://docs.aws.amazon.com/vpc/latest/userguide/vpc-migrate-ipv6.html
-https://docs.aws.amazon.com/vpc/latest/userguide/egress-only-internet-gateway.html
-https://gist.github.com/milesjordan/d86942718f8d4dc20f9f331913e7367a
-https://github.com/aws-quickstart/quickstart-vmware
+- https://itnext.io/how-to-run-ipv6-enabled-docker-containers-on-aws-87e090ab0397
+- https://gist.githubusercontent.com/milesjordan/d86942718f8d4dc20f9f331913e7367a/raw/3227d1dff6e9df8a79f395cdb2c62af9899ed777/vpc.yaml
+- https://blog.scottlowe.org/2019/02/18/kubernetes-kubeadm-and-the-aws-cloud-provider/
+- https://docs.aws.amazon.com/vpc/latest/userguide/vpc-migrate-ipv6.html
+- https://docs.aws.amazon.com/vpc/latest/userguide/egress-only-internet-gateway.html
+- https://gist.github.com/milesjordan/d86942718f8d4dc20f9f331913e7367a
+- https://github.com/aws-quickstart/quickstart-vmware
 
+## TODO
 
-## Known Issues
-
-Github.com and k8s.io doesn't support IPv6
-
-registry-1.docker.io and hub.docker.com don’t support IPv6, 
-
-Use a S3 bucket
-
+- [ ] Use the AWS Cloud provider
+  https://github.com/kubernetes/cloud-provider-aws
+- [ ] Document how to expose services without load balancers
+- [ ] Cluster HA configuration
+- [ ] Autoscale workers
+- [ ] Explore alternatives to expose services due to the amount of public addresses we have now
