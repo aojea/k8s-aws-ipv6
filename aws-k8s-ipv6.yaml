@@ -20,6 +20,8 @@ Parameters:
     Default: t2.micro
     AllowedValues:
     - t2.micro
+    - t2.xlarge
+    - t2.2xlarge
     - c4.2xlarge
     - c4.4xlarge
     - c4.8xlarge

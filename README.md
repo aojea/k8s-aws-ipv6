@@ -50,7 +50,7 @@ You can use it from the cli, is only one command and you'll have 1 control-plane
 aws cloudformation create-stack --stack-name myKubernetesIPv6Cluster \
     --template-body file://aws-k8s-ipv6.yaml \
     --parameters ParameterKey=KeyPairName,ParameterValue=aojeagarcia-key \
-                  ParameterKey=InstanceTypeParameter,ParameterValue=c5.2xlarge
+                  ParameterKey=InstanceTypeParameter,ParameterValue=t2.2xlarge
 ```
 
 or uring the AWS Console:
