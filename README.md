@@ -44,13 +44,17 @@ If you want to create your own images, these are the requirements:
 
 Just use the provided cloudformation stack in this repo to create an IPv6 cluster in AWS
 
-You can use it from the cli or the AWS Web Console, is only one command and you'll have 1 control-plane and 2 worker nodes:
+You can use it from the cli, is only one command and you'll have 1 control-plane and 2 worker nodes:
 
 ```sh
 aws cloudformation create-stack --stack-name myKubernetesIPv6Cluster \
     --template-body file://aws-k8s-ipv6.yaml \
     --parameters ParameterKey=KeyPairName,ParameterValue=aojeagarcia-key
 ```
+
+or uring the AWS Console:
+
+![aws](aws_cloudformation_parameters.png)
 
 You can define your own Keypair, ImageId, InstanceType, and Kubeadm Token as parameters.
 
