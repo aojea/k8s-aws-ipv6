@@ -80,11 +80,8 @@ Resources:
       ImageId: ami-09345f73773a6578b # TODO parameter with full baked image
       SourceDestCheck: false # We need to route pod and services traffic inside the instances
       InstanceType: t2.micro # TODO parameter
-      NetworkInterfaces:
-      - DeleteOnTermination: true
-        DeviceIndex: 0
-        SubnetId: !Ref PublicSubnetA
-        GroupSet:
+      SubnetId: !Ref PublicSubnetA
+      SecurityGroupIds:
         - !Ref ClusterSecGroup
       Tags:
       - Key: Name
@@ -161,11 +158,8 @@ Resources:
       ImageId: ami-09345f73773a6578b # TODO parameter with full baked image
       SourceDestCheck: false # We need to route pod and services traffic inside the instances
       InstanceType: t2.micro # TODO parameter
-      NetworkInterfaces:
-      - DeleteOnTermination: true
-        DeviceIndex: 0
-        SubnetId: !Ref PublicSubnetA
-        GroupSet:
+      SubnetId: !Ref PublicSubnetA
+      SecurityGroupIds:
         - !Ref ClusterSecGroup
       Tags:
       - Key: Name
@@ -193,7 +187,7 @@ Resources:
               EOF
 
               /usr/bin/kubeadm join --config /opt/kubeadm.yaml --ignore-preflight-errors=all -v7
-            - ApiServerIP: !GetAtt MasterHost.Ipv6Address
+            - ApiServerIP: !GetAtt MasterHost.PrivateIp
 
   Worker2Host:
     Type: AWS::EC2::Instance
@@ -202,11 +196,8 @@ Resources:
       ImageId: ami-09345f73773a6578b # TODO parameter with full baked image
       SourceDestCheck: false # We need to route pod and services traffic inside the instances
       InstanceType: t2.micro # TODO parameter
-      NetworkInterfaces:
-      - DeleteOnTermination: true
-        DeviceIndex: 0
-        SubnetId: !Ref PublicSubnetA
-        GroupSet:
+      SubnetId: !Ref PublicSubnetA
+      SecurityGroupIds:
         - !Ref ClusterSecGroup
       Tags:
       - Key: Name
@@ -234,7 +225,7 @@ Resources:
               EOF
 
               /usr/bin/kubeadm join --config /opt/kubeadm.yaml --ignore-preflight-errors=all -v7
-            - ApiServerIP: !GetAtt MasterHost.Ipv6Address
+            - ApiServerIP: !GetAtt MasterHost.PrivateIp
 
   # Define the (one) security group for all machines in the cluster.  Keeping
   # just one security group helps with k8s's cloud-provider=aws integration so
