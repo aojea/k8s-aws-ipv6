@@ -78,9 +78,9 @@ You can define your own Keypair, ImageId, InstanceType, and Kubeadm Token as par
 
 ## Creating the cluster with Kubeadm
 
-**NOTE**: Kubelet node-ip autodiscovery pending https://github.com/kubernetes/kubernetes/pull/88164
+Kubelet IPv6 node IP autodiscovery is only available in kubernetes 1.18+
 
-Without this patch, you have to configure the kubelet node-ip to use the node IPv6 address adding
+In previous kubernetes versions you have to configure the kubelet node-ip to use the node IPv6 address adding
 `--node-ip=NODE_IPV6_ADDRESS` in `/var/lib/kubelet/kubeadm-flags.env` and restarting the kubelet 
 `systemctl restart kubelet`
 
